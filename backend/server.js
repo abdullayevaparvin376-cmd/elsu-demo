@@ -19,7 +19,7 @@ const pool = new Pool({
 });
 
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN || '*',
+  origin: 'https://glistening-vacherin-92749f.netlify.app',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
