@@ -56,7 +56,13 @@ function requireRole(role) {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
-
+// Captcha Endpoint
+app.get('/api/auth/captcha', (req, res) => {
+  res.json({
+    question: '3 + 2 = ?',
+    answer: '5'
+  });
+});
 // 1. LOGIN ENDPOINT
 app.post('/api/auth/login', async (req, res) => {
   const { studentId, password, role } = req.body;
