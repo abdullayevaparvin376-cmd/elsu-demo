@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ELSU-LIKE DEMO / Tələbə İnformasiya Sistemi</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="system-disclaimer-banner">
+    ⚠️ ELSU-LIKE DEMO / TEST SYSTEM — Real universitet bazası ilə heç bir əlaqəsi yoxdur.
+  </div>
+<!-- 1. LOGIN SƏHİFƏSİ -->
+  <main id="loginSection" class="view-container">
+    <div class="login-card">
+      <div class="login-header">
+        <h2>TƏHSİL İNFORMASİYA PORTALI</h2>
+        <p>Demo Giriş Paneli</p>
+      </div>
+
+      <div class="login-role-tabs">
+        <button id="tabStudent" class="tab-btn active" type="button">TƏLƏBƏ GİRİŞİ</button>
+        <button id="tabAdmin" class="tab-btn" type="button">ADMIN GİRİŞİ</button>
+      </div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label id="userIdLabel" for="loginUserId">Tələbə ID</label>
+          <input type="text" id="loginUserId" placeholder="Məs: DEMO-2006" required>
+        </div>
+
+        <div class="form-group">
+          <label for="loginPassword">Şifrə</label>
+          <input type="password" id="loginPassword" placeholder="••••••••" required>
+        </div>
+
+        <div class="form-group captcha-box">
+          <label for="captchaInput">Təhlükəsizlik Kodu: <span id="captchaQuestion" class="captcha-badge"></span></label>
+          <div class="captcha-inline">
+            <input type="number" id="captchaInput" placeholder="Cavab" required>
+            <button type="button" id="refreshCaptchaBtn" title="Yenilə">🔄</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary" id="loginBtn">Sistemə Daxil Ol</button>
+      </form>
+
+      <div class="demo-credential-hint">
+        <p><strong>Demo İstifadəçilər:</strong></p>
+        <p>Tələbə ID: <code>DEMO-2006</code> | Admin ID: <code>ADMIN-DEMO</code></p>
+      </div>
+    </div>
+  </main>
+
+  <!-- 2. TƏLƏBƏ KABİNETİ -->
+  <div id="studentDashboard" class="view-container hidden">
+    <header class="portal-header">
+      <div class="portal-branding">
+        <h1>TƏLƏBƏ ŞƏXSİ KABİNETİ</h1>
+        <span class="badge-status">Status: Aktiv</span>
+      </div>
+      <div class="user-action-nav">
+        <span id="studentNavName" class="user-tag"></span>
+        <button class="btn-logout" onclick="logout()">Çıxış</button>
+      </div>
+    </header>
+
+    <section class="portal-body">
+      <!-- Tələbə Məlumat Kartı -->
+      <div class="student-profile-summary">
+        <div class="profile-item"><label>Tələbə:</label> <span id="stProfileName">-</span></div>
+        <div class="profile-item"><label>İxtisas:</label> <span id="stProfileSpecialty">-</span></div>
+        <div class="profile-item"><label>Kurs / Semestr:</label> <span id="stProfileCourseSem">-</span></div>
+        <div class="profile-item highlight-box"><label>Tələbənin Giriş Balı:</label> <span id="stProfileEntranceScore">-</span></div>
+      </div>
+
+      <!-- Tələbə Alt Menyu Bölmələri -->
+      <nav class="portal-subtabs">
+        <button class="subtab-btn active" onclick="switchStudentTab('jurnalTab')">Elektron Jurnal & Fənlər</button>
+        <button class="subtab-btn" onclick="switchStudentTab('examTab')">İmtahan Vaxtı Seçimi</button>
+        <button class="subtab-btn" onclick="switchStudentTab('correctionTab')">Düzəliş Müraciəti</button>
+        <button class="subtab-btn" onclick="switchStudentTab('notifTab')">Bildirişlər</button>
+      </nav>
+
+      <!-- TAB 1: Jurnal və Fənn Detalları -->
+      <div id="jurnalTab" class="subtab-content active">
+        <h3>Tədris Fənləri və Cari Göstəricilər</h3>
+        <div class="table-responsive">
+          <table class="elsu-table">
+            <thead>
+              <tr>
+                <th>Fənn Kodu</th>
+                <th>Fənnin Adı</th>
+                <th>Kredit</th>
+                <th>Davamiyyət</th>
+                <th>Seminar</th>
+                <th>Mühazirə</th>
+                <th>Q.B.</th>
+              </tr>
+            </thead>
+            <tbody id="studentSubjectsTableBody"></tbody>
+          </table>
+        </div>
+
+        <h3 class="section-divider">Elektron Davamiyyət Jurnalı (Analitik Kimya)</h3>
+        <div class="table-responsive">
+          <table class="elsu-table">
+            <thead>
+              <tr>
+                <th>Tarix</th>
+                <th>Dərs Növü</th>
+                <th>İştirak Göstəricisi</th>
+                <th>Qeyd</th>
+              </tr>
+            </thead>
+            <tbody id="studentAttendanceTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB 2: İmtahan Vaxtı Seçimi -->
+      <div id="examTab" class="subtab-content">
+        <h3>İmtahan Tarixi və Saatı Seçimi</h3>
+        <p class="section-info">Yalnız fakültə və admin tərəfindən təsdiqlənmiş aktiv imtahan vaxtları aşağıda göstərilir.</p>
+        <div id="studentExamSelectionStatus" class="alert-box"></div>
+        <div id="examSlotsListContainer" class="slot-cards-grid"></div>
+      </div>
+
+      <!-- TAB 3: Düzəliş Tələbi -->
+      <div id="correctionTab" class="subtab-content">
+        <h3>Düzəliş Üzrə Müraciət Tələbi</h3>
+        <form id="correctionForm" class="elsu-form">
+          <div class="form-group">
+            <label for="corrSubjectSelect">Fənn:</label>
+            <select id="corrSubjectSelect" required></select>
+          </div>
+          <div class="form-group">
+            <label for="corrCategorySelect">Göstərici Kateqoriyası:</label>
+            <select id="corrCategorySelect" required>
+              <option value="Davamiyyət">Davamiyyət (Qayıb)</option>
+              <option value="Seminar">Seminar Balı</option>
+              <option value="Mühazirə">Mühazirə / Laboratoriya</option>
+              <option value="Digər">Digər Düzəliş</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="corrDescription">Düzəlişin Təsviri və Əsası:</label>
+            <textarea id="corrDescription" rows="4" placeholder="Məs: 16 mart tarixində seminar üzrə xəstəlik arayışının jurnala əlavə edilməsi..." required></textarea>
+          </div>
+          <button type="submit" class="btn-primary">Düzəliş Tələbini Göndər</button>
+        </form>
+      </div>
+
+      <!-- TAB 4: Bildirişlər -->
+      <div id="notifTab" class="subtab-content">
+        <h3>Rəsmi Bildirişlər</h3>
+        <div id="studentNotificationsList" class="notification-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 3. ADMIN PANEL -->
+  <div id="adminDashboard" class="view-container hidden">
+    <header class="portal-header admin-header-theme">
+      <div class="portal-branding">
+        <h1>DEMO ADMİN İDARƏETMƏ PANELİ</h1>
+        <span class="badge-status">Rejim: Administrator</span>
+      </div>
+      <div class="user-action-nav">
+        <span class="user-tag">Admin: Səlahiyyətli İstifadəçi</span>
+        <button class="btn-logout" onclick="logout()">Çıxış</button>
+      </div>
+    </header>
+
+    <section class="portal-body">
+      <nav class="portal-subtabs">
+        <button class="subtab-btn active" onclick="switchAdminTab('admGradesTab')">Tələbə Qiymətləndirmə</button>
+        <button class="subtab-btn" onclick="switchAdminTab('admSlotsTab')">İmtahan Slotları İdarəsi</button>
+        <button class="subtab-btn" onclick="switchAdminTab('admReqTab')">Düzəliş Tələbləri</button>
+        <button class="subtab-btn" onclick="switchAdminTab('admNoticeTab')">Bildiriş Yarat</button>
+      </nav>
+
+      <!-- ADMIN TAB 1: Qiymətləndirmə -->
+      <div id="admGradesTab" class="subtab-content active">
+        <h3>Tələbələrin Cari və İmtahan Qiymətləndirməsi</h3>
+        <div class="table-responsive">
+          <table class="elsu-table">
+            <thead>
+              <tr>
+                <th>Tələbə ID</th>
+                <th>Ad Soyad</th>
+                <th>Fənn</th>
+                <th>Davamiyyət</th>
+                <th>Seminar</th>
+                <th>Mühazirə</th>
+                <th>Q.B.</th>
+                <th>Əməliyyat</th>
+              </tr>
+            </thead>
+            <tbody id="adminGradesTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB 2: Slot Yaradılması -->
+      <div id="admSlotsTab" class="subtab-content">
+        <h3>Yeni İmtahan Slotu Əlavə Et</h3>
+        <form id="createSlotForm" class="inline-grid-form">
+          <div class="form-group">
+            <label for="newSlotSubject">Fənn:</label>
+            <select id="newSlotSubject" required></select>
+          </div>
+          <div class="form-group">
+            <label for="newSlotDate">İmtahan Tarixi:</label>
+            <input type="date" id="newSlotDate" required>
+          </div>
+          <div class="form-group">
+            <label for="newSlotTime">Saat:</label>
+            <input type="text" id="newSlotTime" placeholder="09:00" required>
+          </div>
+          <div class="form-group">
+            <label for="newSlotRoom">Auditoriya / Otaq:</label>
+            <input type="text" id="newSlotRoom" placeholder="Auditoriya 304" required>
+          </div>
+          <div class="form-group">
+            <label for="newSlotCapacity">Yer Sayı:</label>
+            <input type="number" id="newSlotCapacity" value="25" min="1" required>
+          </div>
+          <div class="form-group">
+            <label for="newSlotActive">Aktiv Status:</label>
+            <select id="newSlotActive">
+              <option value="true">Aktiv (Tələbə görür)</option>
+              <option value="false">Deaktiv (Gizli)</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-primary">Slot Yarat</button>
+        </form>
+
+        <h3 class="section-divider">Mövcud İmtahan Slotları</h3>
+        <div class="table-responsive">
+          <table class="elsu-table">
+            <thead>
+              <tr>
+                <th>Fənn</th>
+                <th>Tarix</th>
+                <th>Saat</th>
+                <th>Otaq</th>
+                <th>Kapasitet</th>
+                <th>Seçən Tələbə</th>
+                <th>Status</th>
+                <th>Dəyiş / Sil</th>
+              </tr>
+            </thead>
+            <tbody id="adminSlotsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB 3: Düzəliş Müraciətləri -->
+      <div id="admReqTab" class="subtab-content">
+        <h3>Tələbələrdən Gələn Düzəliş Tələbləri</h3>
+        <div class="table-responsive">
+          <table class="elsu-table">
+            <thead>
+              <tr>
+                <th>Tələbə</th>
+                <th>Fənn</th>
+                <th>Kateqoriya</th>
+                <th>Təsvir</th>
+                <th>Tarix</th>
+                <th>Status</th>
+                <th>Qərar / Qeyd</th>
+              </tr>
+            </thead>
+            <tbody id="adminRequestsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB 4: Bildiriş Paylaşımı -->
+      <div id="admNoticeTab" class="subtab-content">
+        <h3>Yeni Bildiriş Göndər</h3>
+        <form id="createNoticeForm" class="elsu-form">
+          <div class="form-group">
+            <label for="noticeTitle">Bildiriş Başlığı:</label>
+            <input type="text" id="noticeTitle" placeholder="Məs: İmtahan sessiyası barədə" required>
+          </div>
+          <div class="form-group">
+            <label for="noticeMessage">Məzmun:</label>
+            <textarea id="noticeMessage" rows="4" placeholder="Məlumat mətni..." required></textarea>
+          </div>
+          <button type="submit" class="btn-primary">Bildirişi Paylaş</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div id="toastNotification" class="toast-popup hidden"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
