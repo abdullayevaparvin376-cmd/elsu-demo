@@ -17,10 +17,10 @@ function generateCaptcha() {
   const num1 = Math.floor(Math.random() * 9) + 1;
   const num2 = Math.floor(Math.random() * 9) + 1;
   captchaAnswer = num1 + num2;
-  
+
   const qEl = document.getElementById('captchaQuestion');
   if (qEl) qEl.innerText = `${num1} + ${num2} = ?`;
-  
+
   const inputEl = document.getElementById('captchaInput');
   if (inputEl) inputEl.value = '';
 }
@@ -30,7 +30,9 @@ if (refreshCaptchaBtn) {
   refreshCaptchaBtn.addEventListener('click', generateCaptcha);
 }
 
-// Login Tabs Switching
+// ============================
+// Login Tabs Switching (DÜZƏLDİLDİ)
+// ============================
 const tabStudent = document.getElementById('tabStudent');
 const tabAdmin = document.getElementById('tabAdmin');
 
@@ -46,13 +48,27 @@ if (tabStudent) {
   });
 }
 
+// Əvvəlki koddan itmiş/sınmış hissə burda idi - indi düzgün bağlanıb
 if (tabAdmin) {
-// Login Form Submit (ID-dən asılı olmayan düzəldilmiş hissə)
+  tabAdmin.addEventListener('click', () => {
+    currentRole = 'ADMIN';
+    tabAdmin.classList.add('active');
+    if (tabStudent) tabStudent.classList.remove('active');
+    const userIdLabel = document.getElementById('userIdLabel');
+    const loginUserId = document.getElementById('loginUserId');
+    if (userIdLabel) userIdLabel.innerText = 'Admin ID';
+    if (loginUserId) loginUserId.placeholder = 'Məs: ADMIN-001';
+  });
+}
+
+// ============================
+// Login Form Submit (təkrarlanan fetch bloku silindi)
+// ============================
 const loginForm = document.getElementById('loginForm');
 if (loginForm) {
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     // Captcha yoxlanışı
     const captchaInputEl = document.getElementById('captchaInput');
     const inputCaptcha = captchaInputEl ? parseInt(captchaInputEl.value.trim(), 10) : NaN;
@@ -64,8 +80,13 @@ if (loginForm) {
     }
 
     // HTML-də ID nə olur olsun, formun içindən input-ları tapırıq
-    const userIdInput = loginForm.querySelector('input[type="text"]') || document.getElementById('loginUserId') || document.getElementById('studentId') || document.getElementById('userId');
-    const passwordInput = loginForm.querySelector('input[type="password"]') || document.getElementById('loginPassword') || document.getElementById('password');
+    const userIdInput = loginForm.querySelector('input[type="text"]')
+      || document.getElementById('loginUserId')
+      || document.getElementById('studentId')
+      || document.getElementById('userId');
+    const passwordInput = loginForm.querySelector('input[type="password"]')
+      || document.getElementById('loginPassword')
+      || document.getElementById('password');
 
     const loginId = userIdInput ? userIdInput.value.trim() : '';
     const password = passwordInput ? passwordInput.value : '';
@@ -79,45 +100,30 @@ if (loginForm) {
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          studentId: loginId, 
-          username: loginId, 
+        body: JSON.stringify({
+          studentId: loginId,
+          username: loginId,
           userId: loginId,
-          password, 
-          role: currentRole 
+          password,
+          role: currentRole
         })
       });
-      const data = await res.json();
+
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        console.error('Cavab JSON formatında deyil:', parseErr);
+      }
 
       if (!res.ok) {
-        showToast(data.error || 'Giriş uğursuz oldu.');
+        showToast(data.error || `Giriş uğursuz oldu. (${res.status})`);
         generateCaptcha();
         return;
       }
 
-      localStorage.setItem('elsu_token', data.token);
-      localStorage.setItem('elsu_user', JSON.stringify(data.user));
-      initApp();
-    } catch (err) {
-      console.error(err);
-      showToast('Serverə qoşulma xətası. Backend API URL-i yoxlayın.');
-    }
-  });
-}
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          studentId: loginId, 
-          username: loginId, 
-          userId: loginId,
-          password, 
-          role: currentRole 
-        })
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        showToast(data.error || 'Giriş uğursuz oldu.');
+      if (!data.token || !data.user) {
+        showToast('Server düzgün cavab qaytarmadı.');
         generateCaptcha();
         return;
       }
@@ -154,19 +160,21 @@ function getAuthHeaders() {
 }
 
 // Student Tab Switcher
-function switchStudentTab(tabId) {
+function switchStudentTab(tabId, evt) {
   document.querySelectorAll('#studentDashboard .subtab-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('#studentDashboard .subtab-content').forEach(c => c.classList.remove('active'));
-  if (event && event.target) event.target.classList.add('active');
+  const e = evt || window.event;
+  if (e && e.target) e.target.classList.add('active');
   const targetTab = document.getElementById(tabId);
   if (targetTab) targetTab.classList.add('active');
 }
 
 // Admin Tab Switcher
-function switchAdminTab(tabId) {
+function switchAdminTab(tabId, evt) {
   document.querySelectorAll('#adminDashboard .subtab-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('#adminDashboard .subtab-content').forEach(c => c.classList.remove('active'));
-  if (event && event.target) event.target.classList.add('active');
+  const e = evt || window.event;
+  if (e && e.target) e.target.classList.add('active');
   const targetTab = document.getElementById(tabId);
   if (targetTab) targetTab.classList.add('active');
 }
@@ -305,9 +313,9 @@ async function loadStudentExamSlots() {
           <p><strong>Yer:</strong> ${slot.room}</p>
           <p><strong>Boş yer:</strong> ${slot.capacity - slot.booked_count} / ${slot.capacity}</p>
         </div>
-        <button 
-          class="btn-slot-select" 
-          ${isSelected || isFull ? 'disabled' : ''} 
+        <button
+          class="btn-slot-select"
+          ${isSelected || isFull ? 'disabled' : ''}
           onclick="selectExamSlot(${slot.subject_id}, ${slot.id})">
           ${isSelected ? 'Seçilib' : (isFull ? 'Yer Yoxdur' : 'Bu Vaxtı Seç')}
         </button>
@@ -370,7 +378,9 @@ if (correctionForm) {
   });
 }
 
+// ============================
 // ADMIN PANEL
+// ============================
 async function loadAdminPortal() {
   try {
     const subRes = await fetch(`${API_BASE_URL}/api/admin/subjects`, { headers: getAuthHeaders() });
@@ -595,7 +605,9 @@ if (createNoticeForm) {
   });
 }
 
+// ============================
 // App Initialization
+// ============================
 function initApp() {
   const token = localStorage.getItem('elsu_token');
   const userStr = localStorage.getItem('elsu_user');
@@ -613,7 +625,7 @@ function initApp() {
   if (!token || !user.role) {
     if (loginSection) loginSection.classList.remove('hidden');
     if (studentDashboard) studentDashboard.classList.add('hidden');
-    if (adminDashboard) studentDashboard.classList.add('hidden');
+    if (adminDashboard) adminDashboard.classList.add('hidden'); // DÜZƏLDİLDİ: əvvəl studentDashboard-a səhv müraciət edilirdi
     generateCaptcha();
     return;
   }
