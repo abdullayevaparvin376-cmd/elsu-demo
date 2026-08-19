@@ -39,30 +39,50 @@ if (tabStudent) {
     if (tabAdmin) tabAdmin.classList.remove('active');
     const userIdLabel = document.getElementById('userIdLabel');
     const loginUserId = document.getElementById('loginUserId');
-    if (userIdLabel) userIdLabel.innerText = 'Tələbə ID';
-    if (loginUserId) loginUserId.placeholder = 'Məs: DEMO-2006';
-  });
-}
+    // Login Form Submit
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  // HTML-də id başqa cür olsa belə avtomatik tapır
+  const userIdInput = document.getElementById('loginUserId') || document.getElementById('studentId') || document.getElementById('userId');
+  const passwordInput = document.getElementById('loginPassword') || document.getElementById('password');
+  
+  const studentId = userIdInput ? userIdInput.value.trim() : '';
+  const password = passwordInput ? passwordInput.value : '';
 
-if (tabAdmin) {
-  tabAdmin.addEventListener('click', () => {
-    currentRole = 'ADMIN';
-    tabAdmin.classList.add('active');
-    if (tabStudent) tabStudent.classList.remove('active');
-    const userIdLabel = document.getElementById('userIdLabel');
-    const loginUserId = document.getElementById('loginUserId');
-    if (userIdLabel) userIdLabel.innerText = 'Admin ID';
-    if (loginUserId) loginUserId.placeholder = 'Məs: ADMIN-DEMO';
-  });
-}
+  const inputCaptcha = parseInt(document.getElementById('captchaInput').value, 10);
+  if (inputCaptcha !== captchaAnswer) {
+    showToast('Təhlükəsizlik kodu (CAPTCHA) yanlışdır!');
+    generateCaptcha();
+    return;
+  }
 
-// Login Form Submit
-const loginForm = document.getElementById('loginForm');
-if (loginForm) {
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const captchaInputEl = document.getElementById('captchaInput');
-    const inputCaptcha = captchaInputEl ? parseInt(captchaInputEl.value, 10) : NaN;
+  if (!studentId || !password) {
+    showToast('İstifadəçi ID və şifrə daxil edilməlidir.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, username: studentId, password, role: currentRole })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showToast(data.error || 'Giriş uğursuz oldu.');
+      generateCaptcha();
+      return;
+    }
+
+    localStorage.setItem('elsu_token', data.token);
+    localStorage.setItem('elsu_user', JSON.stringify(data.user));
+    initApp();
+  } catch (err) {
+    showToast('Serverə qoşulma xətası. Backend API URL-i yoxlayın.');
+  }
+});
 
     if (inputCaptcha !== captchaAnswer) {
       showToast('Təhlükəsizlik kodu (CAPTCHA) yanlışdır!');
