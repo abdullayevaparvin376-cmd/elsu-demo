@@ -17,8 +17,10 @@ function generateCaptcha() {
   const num1 = Math.floor(Math.random() * 9) + 1;
   const num2 = Math.floor(Math.random() * 9) + 1;
   captchaAnswer = num1 + num2;
+  
   const qEl = document.getElementById('captchaQuestion');
   if (qEl) qEl.innerText = `${num1} + ${num2} = ?`;
+  
   const inputEl = document.getElementById('captchaInput');
   if (inputEl) inputEl.value = '';
 }
@@ -39,64 +41,47 @@ if (tabStudent) {
     if (tabAdmin) tabAdmin.classList.remove('active');
     const userIdLabel = document.getElementById('userIdLabel');
     const loginUserId = document.getElementById('loginUserId');
-    // Login Form Submit
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  
-  // HTML-də id başqa cür olsa belə avtomatik tapır
-  const userIdInput = document.getElementById('loginUserId') || document.getElementById('studentId') || document.getElementById('userId');
-  const passwordInput = document.getElementById('loginPassword') || document.getElementById('password');
-  
-  const studentId = userIdInput ? userIdInput.value.trim() : '';
-  const password = passwordInput ? passwordInput.value : '';
+    if (userIdLabel) userIdLabel.innerText = 'Tələbə ID';
+    if (loginUserId) loginUserId.placeholder = 'Məs: DEMO-2006';
+  });
+}
 
-  const inputCaptcha = parseInt(document.getElementById('captchaInput').value, 10);
-  if (inputCaptcha !== captchaAnswer) {
-    showToast('Təhlükəsizlik kodu (CAPTCHA) yanlışdır!');
-    generateCaptcha();
-    return;
-  }
+if (tabAdmin) {
+  tabAdmin.addEventListener('click', () => {
+    currentRole = 'ADMIN';
+    tabAdmin.classList.add('active');
+    if (tabStudent) tabStudent.classList.remove('active');
+    const userIdLabel = document.getElementById('userIdLabel');
+    const loginUserId = document.getElementById('loginUserId');
+    if (userIdLabel) userIdLabel.innerText = 'Admin ID';
+    if (loginUserId) loginUserId.placeholder = 'Məs: ADMIN-DEMO';
+  });
+}
 
-  if (!studentId || !password) {
-    showToast('İstifadəçi ID və şifrə daxil edilməlidir.');
-    return;
-  }
+// Login Form Submit (İstifadəçi ID / Tələbə ID / Admin ID uyğunsuzluğunu tam aradan qaldıran hissə)
+const loginForm = document.getElementById('loginForm');
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Captcha yoxlanışı
+    const captchaInputEl = document.getElementById('captchaInput');
+    const inputCaptcha = captchaInputEl ? parseInt(captchaInputEl.value.trim(), 10) : NaN;
 
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId, username: studentId, password, role: currentRole })
-    });
-    const data = await res.json();
-
-    if (!res.ok) {
-      showToast(data.error || 'Giriş uğursuz oldu.');
-      generateCaptcha();
-      return;
-    }
-
-    localStorage.setItem('elsu_token', data.token);
-    localStorage.setItem('elsu_user', JSON.stringify(data.user));
-    initApp();
-  } catch (err) {
-    showToast('Serverə qoşulma xətası. Backend API URL-i yoxlayın.');
-  }
-});
-
-    if (inputCaptcha !== captchaAnswer) {
+    if (isNaN(inputCaptcha) || inputCaptcha !== captchaAnswer) {
       showToast('Təhlükəsizlik kodu (CAPTCHA) yanlışdır!');
       generateCaptcha();
       return;
     }
 
-    const userIdInput = document.getElementById('loginUserId');
-    const passwordInput = document.getElementById('loginPassword');
+    // İstifadəçi / Tələbə / Admin ID oxunması
+    const userIdInput = document.getElementById('loginUserId') || document.getElementById('studentId') || document.getElementById('userId');
+    const passwordInput = document.getElementById('loginPassword') || document.getElementById('password');
 
-    const studentId = userIdInput ? userIdInput.value.trim() : '';
+    const loginId = userIdInput ? userIdInput.value.trim() : '';
     const password = passwordInput ? passwordInput.value : '';
 
-    if (!studentId || !password) {
+    if (!loginId || !password) {
       showToast('İstifadəçi ID və şifrə daxil edilməlidir.');
       return;
     }
@@ -106,8 +91,9 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          studentId, 
-          username: studentId, 
+          studentId: loginId, 
+          username: loginId, 
+          userId: loginId,
           password, 
           role: currentRole 
         })
@@ -191,9 +177,7 @@ async function loadStudentPortal() {
     const subRes = await fetch(`${API_BASE_URL}/api/student/subjects`, { headers: getAuthHeaders() });
     const subjects = await subRes.json();
     const tbody = document.getElementById('studentSubjectsTableBody');
-    if (tbody) {
-      tbody.innerHTML = '';
-    }
+    if (tbody) tbody.innerHTML = '';
 
     const corrSelect = document.getElementById('corrSubjectSelect');
     if (corrSelect) corrSelect.innerHTML = '';
@@ -243,7 +227,6 @@ async function loadStudentPortal() {
       });
     }
 
-    // 3. İmtahan Slotları
     loadStudentExamSlots();
 
     // 4. Bildirişlər
@@ -371,7 +354,7 @@ if (correctionForm) {
   });
 }
 
-// ADMIN PANEL MƏLUMATLARININ YÜKLƏNMƏSİ
+// ADMIN PANEL
 async function loadAdminPortal() {
   try {
     const subRes = await fetch(`${API_BASE_URL}/api/admin/subjects`, { headers: getAuthHeaders() });
@@ -418,17 +401,11 @@ async function loadAdminPortal() {
 
 async function saveGrade(userId, subjectId) {
   try {
-    const attEl = document.getElementById(`att_${userId}_${subjectId}`);
-    const semEl = document.getElementById(`sem_${userId}_${subjectId}`);
-    const lecEl = document.getElementById(`lec_${userId}_${subjectId}`);
-    const qbEl = document.getElementById(`qb_${userId}_${subjectId}`);
-    const examEl = document.getElementById(`exam_${userId}_${subjectId}`);
-
-    const attendanceScore = attEl ? parseFloat(attEl.value) || 0 : 0;
-    const seminarScore = semEl ? parseFloat(semEl.value) || 0 : 0;
-    const lectureScore = lecEl ? parseFloat(lecEl.value) || 0 : 0;
-    const qbScore = qbEl ? parseFloat(qbEl.value) || 0 : 0;
-    const examVal = examEl ? examEl.value : '';
+    const attendanceScore = parseFloat(document.getElementById(`att_${userId}_${subjectId}`).value) || 0;
+    const seminarScore = parseFloat(document.getElementById(`sem_${userId}_${subjectId}`).value) || 0;
+    const lectureScore = parseFloat(document.getElementById(`lec_${userId}_${subjectId}`).value) || 0;
+    const qbScore = parseFloat(document.getElementById(`qb_${userId}_${subjectId}`).value) || 0;
+    const examVal = document.getElementById(`exam_${userId}_${subjectId}`).value;
     const examScore = examVal !== '' ? parseFloat(examVal) : null;
 
     const res = await fetch(`${API_BASE_URL}/api/admin/grades/${userId}/${subjectId}`, {
@@ -620,7 +597,7 @@ function initApp() {
   if (!token || !user.role) {
     if (loginSection) loginSection.classList.remove('hidden');
     if (studentDashboard) studentDashboard.classList.add('hidden');
-    if (adminDashboard) adminDashboard.classList.add('hidden');
+    if (adminDashboard) studentDashboard.classList.add('hidden');
     generateCaptcha();
     return;
   }
