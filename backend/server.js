@@ -58,24 +58,63 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 // Captcha Endpoint
+// Captcha Endpoint
+const captchaStore = {};
 app.get('/api/auth/captcha', (req, res) => {
+  const n1 = Math.floor(Math.random() * 8) + 2;
+  const n2 = Math.floor(Math.random() * 8) + 1;
+  const id = 'captcha_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+  captchaStore[id] = n1 + n2;
   res.json({
-    question: '3 + 2 = ?',
-    answer: '5'
+    question: `${n1} + ${n2} = ?`,
+    captchaId: id
   });
 });
+// Captcha Endpoint
+const captchaStore = {};
+
+app.get('/api/auth/captcha', (req, res) => {
+  const n1 = Math.floor(Math.random() * 8) + 2;
+  const n2 = Math.floor(Math.random() * 8) + 1;
+  const id = 'captcha_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+
+  captchaStore[id] = n1 + n2;
+
+  // 5 dəqiqədən sonra köhnə captcha-ları təmizləyək (yaddaş sızmasının qarşısını almaq üçün)
+  setTimeout(() => delete captchaStore[id], 5 * 60 * 1000);
+
+  res.json({
+    question: `${n1} + ${n2} = ?`,
+    captchaId: id
+  });
+});
+
 // 1. LOGIN ENDPOINT
 app.post('/api/auth/login', async (req, res) => {
-  const { studentId, password, role } = req.body;
+  const { studentId, username, password, role, captchaId, captchaAnswer } = req.body;
+  const loginId = studentId || username; // frontend "username" göndərsə də işləsin
 
-  if (!studentId || !password) {
+  if (!loginId || !password) {
     return res.status(400).json({ error: 'İstifadəçi ID və şifrə daxil edilməlidir.' });
   }
+
+  // --- CAPTCHA yoxlanışı ---
+  if (!captchaId || !captchaStore.hasOwnProperty(captchaId)) {
+    return res.status(400).json({ error: 'CAPTCHA vaxtı bitib və ya etibarsızdır, yenidən cəhd edin.' });
+  }
+
+  const expectedAnswer = captchaStore[captchaId];
+  delete captchaStore[captchaId]; // bir dəfə istifadə olunsun, təkrar istifadə olunmasın
+
+  if (parseInt(captchaAnswer, 10) !== expectedAnswer) {
+    return res.status(400).json({ error: 'CAPTCHA cavabı yanlışdır.' });
+  }
+  // --- CAPTCHA yoxlanışı bitdi ---
 
   try {
     const userQuery = await pool.query(
       'SELECT * FROM users WHERE student_id = $1',
-      [studentId.trim()]
+      [loginId.trim()]
     );
 
     if (userQuery.rows.length === 0) {
@@ -89,6 +128,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
+
     if (!isValidPassword) {
       return res.status(401).json({ error: 'İstifadəçi ID və ya şifrə yanlışdır.' });
     }
