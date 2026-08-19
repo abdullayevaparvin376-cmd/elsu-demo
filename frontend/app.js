@@ -6,17 +6,23 @@ function showToast(msg) {
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), 3500);
 }
+// CAPTCHA Generator (backend-dən alınır)
+let currentCaptchaId = null;
 
-// CAPTCHA Generator
-function generateCaptcha() {
-  const num1 = Math.floor(Math.random() * 9) + 1;
-  const num2 = Math.floor(Math.random() * 9) + 1;
-  captchaAnswer = num1 + num2;
-  const qEl = document.getElementById('captchaQuestion');
-  if (qEl) qEl.innerText = `${num1} + ${num2} = ?`;
-  const inputEl = document.getElementById('captchaInput');
-  if (inputEl) inputEl.value = '';
+async function generateCaptcha() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/captcha`);
+    const data = await res.json();
+    currentCaptchaId = data.captchaId;
+    const qEl = document.getElementById('captchaQuestion');
+    if (qEl) qEl.innerText = data.question;
+    const inputEl = document.getElementById('captchaInput');
+    if (inputEl) inputEl.value = '';
+  } catch (err) {
+    showToast('CAPTCHA yüklənə bilmədi. Backend URL-i yoxlayın.');
+  }
 }
+
 
 document.getElementById('refreshCaptchaBtn').addEventListener('click', generateCaptcha);
 
@@ -40,12 +46,7 @@ document.getElementById('tabAdmin').addEventListener('click', () => {
 // Login Form Submit
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const inputCaptcha = parseInt(document.getElementById('captchaInput').value, 10);
-  if (inputCaptcha !== captchaAnswer) {
-    showToast('Təhlükəsizlik kodu (CAPTCHA) yanlışdır!');
-    generateCaptcha();
-    return;
-  }
+  const inputCaptcha = document.getElementById('captchaInput').value;
 
   const studentId = document.getElementById('loginUserId').value.trim();
   const password = document.getElementById('loginPassword').value;
@@ -54,7 +55,13 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId, password, role: currentRole })
+      body: JSON.stringify({
+        studentId,
+        password,
+        role: currentRole,
+        captchaId: currentCaptchaId,
+        captchaAnswer: inputCaptcha
+      })
     });
     const data = await res.json();
 
