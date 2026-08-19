@@ -1,527 +1,627 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const API_BASE_URL = (window.ELSU_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('JWT_SECRET environment variable is required.');
-  process.exit(1);
+// Qlobal dəyişənlər
+let currentRole = 'STUDENT';
+let currentCaptchaId = null;
+
+function showToast(msg) {
+  const toast = document.getElementById('toastNotification');
+  if (!toast) return;
+  toast.innerText = msg;
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), 3500);
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
-});
-
-app.use(cors({
-  origin: 'https://glistening-vacherin-92749f.netlify.app',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
-app.use(express.json());
-
-// Auth Middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Avtorizasiya tokeni tapılmadı.' });
+// CAPTCHA Generator (Serverdən çəkən versiya)
+async function generateCaptcha() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/captcha`);
+    const data = await res.json();
+    currentCaptchaId = data.captchaId; // Serverdən gələn ID-ni qeyd edirik
+    
+    const qEl = document.getElementById('captchaQuestion');
+    if (qEl) qEl.innerText = data.question;
+    
+    const inputEl = document.getElementById('captchaInput');
+    if (inputEl) inputEl.value = '';
+  } catch (err) {
+    console.error('Captcha yüklənmədi:', err);
   }
+}
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Token etibarsızdır və ya vaxtı bitib.' });
-    }
-    req.user = user;
-    next();
+const refreshCaptchaBtn = document.getElementById('refreshCaptchaBtn');
+if (refreshCaptchaBtn) {
+  refreshCaptchaBtn.addEventListener('click', generateCaptcha);
+}
+
+// Login Tabs Switching
+const tabStudent = document.getElementById('tabStudent');
+const tabAdmin = document.getElementById('tabAdmin');
+
+if (tabStudent) {
+  tabStudent.addEventListener('click', () => {
+    currentRole = 'STUDENT';
+    tabStudent.classList.add('active');
+    if (tabAdmin) tabAdmin.classList.remove('active');
+    const userIdLabel = document.getElementById('userIdLabel');
+    const loginUserId = document.getElementById('loginUserId');
+    if (userIdLabel) userIdLabel.innerText = 'Tələbə ID';
+    if (loginUserId) loginUserId.placeholder = 'Məs: DEMO-2006';
   });
 }
 
-function requireRole(role) {
-  return (req, res, next) => {
-    if (!req.user || req.user.role !== role) {
-      return res.status(403).json({ error: 'Bu əməliyyat üçün icazəniz yoxdur.' });
+if (tabAdmin) {
+  tabAdmin.addEventListener('click', () => {
+    currentRole = 'ADMIN';
+    tabAdmin.classList.add('active');
+    if (tabStudent) tabStudent.classList.remove('active');
+    const userIdLabel = document.getElementById('userIdLabel');
+    const loginUserId = document.getElementById('loginUserId');
+    if (userIdLabel) userIdLabel.innerText = 'Admin ID';
+    if (loginUserId) loginUserId.placeholder = 'Məs: ADMIN-DEMO';
+  });
+}
+
+// Login Form Submit
+const loginForm = document.getElementById('loginForm');
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const userIdInput = document.getElementById('loginUserId');
+    const passwordInput = document.getElementById('loginPassword');
+    const captchaInputEl = document.getElementById('captchaInput');
+
+    const studentId = userIdInput ? userIdInput.value.trim() : '';
+    const password = passwordInput ? passwordInput.value : '';
+    const captchaAnswer = captchaInputEl ? captchaInputEl.value.trim() : '';
+
+    if (!studentId || !password) {
+      showToast('İstifadəçi ID və şifrə daxil edilməlidir.');
+      return;
     }
-    next();
+
+    if (!captchaAnswer) {
+      showToast('Təhlükəsizlik kodu (CAPTCHA) daxil edilməlidir.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          studentId, 
+          username: studentId, 
+          password, 
+          role: currentRole,
+          captchaId: currentCaptchaId, // Serverin gözlədiyi unikal ID
+          captchaAnswer: captchaAnswer // İstifadəçinin daxil etdiyi cavab
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showToast(data.error || 'Giriş uğursuz oldu.');
+        generateCaptcha();
+        return;
+      }
+
+      localStorage.setItem('elsu_token', data.token);
+      localStorage.setItem('elsu_user', JSON.stringify(data.user));
+      initApp();
+    } catch (err) {
+      console.error(err);
+      showToast('Serverə qoşulma xətası. Backend API URL-i yoxlayın.');
+    }
+  });
+}
+
+function logout() {
+  localStorage.removeItem('elsu_token');
+  localStorage.removeItem('elsu_user');
+  const studentDashboard = document.getElementById('studentDashboard');
+  const adminDashboard = document.getElementById('adminDashboard');
+  const loginSection = document.getElementById('loginSection');
+
+  if (studentDashboard) studentDashboard.classList.add('hidden');
+  if (adminDashboard) adminDashboard.classList.add('hidden');
+  if (loginSection) loginSection.classList.remove('hidden');
+  generateCaptcha();
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('elsu_token');
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
   };
 }
 
-// Health Check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-// Captcha Endpoint
-// Captcha Endpoint
-const captchaStore = {};
-app.get('/api/auth/captcha', (req, res) => {
-  const n1 = Math.floor(Math.random() * 8) + 2;
-  const n2 = Math.floor(Math.random() * 8) + 1;
-  const id = 'captcha_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
-  captchaStore[id] = n1 + n2;
-  res.json({
-    question: `${n1} + ${n2} = ?`,
-    captchaId: id
-  });
-});
-// Captcha Endpoint
-const captchaStore = {};
+// Student Tab Switcher
+function switchStudentTab(tabId) {
+  document.querySelectorAll('#studentDashboard .subtab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('#studentDashboard .subtab-content').forEach(c => c.classList.remove('active'));
+  if (event && event.target) event.target.classList.add('active');
+  const targetTab = document.getElementById(tabId);
+  if (targetTab) targetTab.classList.add('active');
+}
 
-app.get('/api/auth/captcha', (req, res) => {
-  const n1 = Math.floor(Math.random() * 8) + 2;
-  const n2 = Math.floor(Math.random() * 8) + 1;
-  const id = 'captcha_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+// Admin Tab Switcher
+function switchAdminTab(tabId) {
+  document.querySelectorAll('#adminDashboard .subtab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('#adminDashboard .subtab-content').forEach(c => c.classList.remove('active'));
+  if (event && event.target) event.target.classList.add('active');
+  const targetTab = document.getElementById(tabId);
+  if (targetTab) targetTab.classList.add('active');
+}
 
-  captchaStore[id] = n1 + n2;
-
-  // 5 dəqiqədən sonra köhnə captcha-ları təmizləyək (yaddaş sızmasının qarşısını almaq üçün)
-  setTimeout(() => delete captchaStore[id], 5 * 60 * 1000);
-
-  res.json({
-    question: `${n1} + ${n2} = ?`,
-    captchaId: id
-  });
-});
-
-// 1. LOGIN ENDPOINT
-app.post('/api/auth/login', async (req, res) => {
-  const { studentId, username, password, role, captchaId, captchaAnswer } = req.body;
-  const loginId = studentId || username; // frontend "username" göndərsə də işləsin
-
-  if (!loginId || !password) {
-    return res.status(400).json({ error: 'İstifadəçi ID və şifrə daxil edilməlidir.' });
-  }
-
-  // --- CAPTCHA yoxlanışı ---
-  if (!captchaId || !captchaStore.hasOwnProperty(captchaId)) {
-    return res.status(400).json({ error: 'CAPTCHA vaxtı bitib və ya etibarsızdır, yenidən cəhd edin.' });
-  }
-
-  const expectedAnswer = captchaStore[captchaId];
-  delete captchaStore[captchaId]; // bir dəfə istifadə olunsun, təkrar istifadə olunmasın
-
-  if (parseInt(captchaAnswer, 10) !== expectedAnswer) {
-    return res.status(400).json({ error: 'CAPTCHA cavabı yanlışdır.' });
-  }
-  // --- CAPTCHA yoxlanışı bitdi ---
-
+// TƏLƏBƏ MƏLUMATLARININ YÜKLƏNMƏSİ
+async function loadStudentPortal() {
   try {
-    const userQuery = await pool.query(
-      'SELECT * FROM users WHERE student_id = $1',
-      [loginId.trim()]
-    );
+    const userStr = localStorage.getItem('elsu_user');
+    if (!userStr) return;
+    const user = JSON.parse(userStr);
 
-    if (userQuery.rows.length === 0) {
-      return res.status(401).json({ error: 'İstifadəçi ID və ya şifrə yanlışdır.' });
+    const setInnerText = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.innerText = val;
+    };
+
+    setInnerText('studentNavName', user.fullName);
+    setInnerText('stProfileName', user.fullName);
+    setInnerText('stProfileSpecialty', user.specialty || '-');
+    setInnerText('stProfileCourseSem', `${user.course || '-'} Kurs / ${user.semester || '-'} Semestr`);
+    setInnerText('stProfileEntranceScore', `${user.entranceScore || '0.00'} bal`);
+
+    // 1. Fənlər və Jurnal
+    const subRes = await fetch(`${API_BASE_URL}/api/student/subjects`, { headers: getAuthHeaders() });
+    const subjects = await subRes.json();
+    const tbody = document.getElementById('studentSubjectsTableBody');
+    if (tbody) {
+      tbody.innerHTML = '';
     }
 
-    const user = userQuery.rows[0];
+    const corrSelect = document.getElementById('corrSubjectSelect');
+    if (corrSelect) corrSelect.innerHTML = '';
 
-    if (role && user.role !== role) {
-      return res.status(403).json({ error: 'Seçilmiş rol üçün icazə verilmədi.' });
+    if (Array.isArray(subjects)) {
+      subjects.forEach(s => {
+        if (tbody) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><strong>${s.code}</strong></td>
+            <td>${s.name}</td>
+            <td>${s.credits}</td>
+            <td>${s.attendance_score}</td>
+            <td>${s.seminar_score}</td>
+            <td>${s.lecture_score}</td>
+            <td>${s.qb_score}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        if (corrSelect) {
+          const opt = document.createElement('option');
+          opt.value = s.subject_id;
+          opt.innerText = s.name;
+          corrSelect.appendChild(opt);
+        }
+      });
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'İstifadəçi ID və ya şifrə yanlışdır.' });
+    // 2. Davamiyyət
+    const attRes = await fetch(`${API_BASE_URL}/api/student/attendance`, { headers: getAuthHeaders() });
+    const attendance = await attRes.json();
+    const attTbody = document.getElementById('studentAttendanceTableBody');
+    if (attTbody && Array.isArray(attendance)) {
+      attTbody.innerHTML = '';
+      attendance.forEach(a => {
+        const tr = document.createElement('tr');
+        const badgeClass = a.status === 'İ' ? 'i' : (a.status === 'Q' ? 'q' : 'b');
+        const label = a.status === 'İ' ? 'İştirak' : (a.status === 'Q' ? 'Qayıb' : 'Bəzrsiz');
+        tr.innerHTML = `
+          <td>${a.lesson_date ? a.lesson_date.split('T')[0] : ''}</td>
+          <td>${a.lesson_type}</td>
+          <td><span class="badge-att ${badgeClass}">${a.status} (${label})</span></td>
+          <td>${a.note || '-'}</td>
+        `;
+        attTbody.appendChild(tr);
+      });
     }
 
-    const token = jwt.sign(
-      { id: user.id, studentId: user.student_id, role: user.role, fullName: user.full_name },
-      JWT_SECRET,
-      { expiresIn: '12h' }
-    );
+    // 3. İmtahan Slotları
+    loadStudentExamSlots();
 
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        studentId: user.student_id,
-        fullName: user.full_name,
-        role: user.role,
-        specialty: user.specialty,
-        course: user.course,
-        semester: user.semester,
-        entranceScore: user.entrance_score
+    // 4. Bildirişlər
+    const notifRes = await fetch(`${API_BASE_URL}/api/student/notifications`, { headers: getAuthHeaders() });
+    const notifs = await notifRes.json();
+    const notifContainer = document.getElementById('studentNotificationsList');
+    if (notifContainer && Array.isArray(notifs)) {
+      notifContainer.innerHTML = '';
+      notifs.forEach(n => {
+        const card = document.createElement('div');
+        card.className = 'notif-card';
+        card.innerHTML = `
+          <h4>${n.title}</h4>
+          <p>${n.message}</p>
+          <small style="color:#64748b;">${new Date(n.created_at).toLocaleString('az-AZ')}</small>
+        `;
+        notifContainer.appendChild(card);
+      });
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function loadStudentExamSlots() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/student/exam-slots`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    const container = document.getElementById('examSlotsListContainer');
+    const statusBox = document.getElementById('studentExamSelectionStatus');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const selectedSlotIds = (data.mySelections || []).map(s => s.exam_slot_id);
+
+    if (statusBox) {
+      if (selectedSlotIds.length > 0) {
+        statusBox.style.display = 'block';
+        statusBox.innerText = '✅ Sizin imtahan vaxtınız artıq sistemdə qeydə alınıb.';
+      } else {
+        statusBox.style.display = 'none';
       }
+    }
+
+    if (!data.availableSlots || data.availableSlots.length === 0) {
+      container.innerHTML = '<p>Hazırda aktiv imtahan slotu yoxdur.</p>';
+      return;
+    }
+
+    data.availableSlots.forEach(slot => {
+      const isSelected = selectedSlotIds.includes(slot.id);
+      const isFull = parseInt(slot.booked_count, 10) >= slot.capacity;
+      const card = document.createElement('div');
+      card.className = `slot-card ${isSelected ? 'selected' : ''}`;
+      card.innerHTML = `
+        <div>
+          <h4>${slot.subject_name} (${slot.subject_code})</h4>
+          <p><strong>Tarix:</strong> ${slot.exam_date}</p>
+          <p><strong>Saat:</strong> ${slot.exam_time}</p>
+          <p><strong>Yer:</strong> ${slot.room}</p>
+          <p><strong>Boş yer:</strong> ${slot.capacity - slot.booked_count} / ${slot.capacity}</p>
+        </div>
+        <button 
+          class="btn-slot-select" 
+          ${isSelected || isFull ? 'disabled' : ''} 
+          onclick="selectExamSlot(${slot.subject_id}, ${slot.id})">
+          ${isSelected ? 'Seçilib' : (isFull ? 'Yer Yoxdur' : 'Bu Vaxtı Seç')}
+        </button>
+      `;
+      container.appendChild(card);
     });
   } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ error: 'Server daxili xətası baş verdi.' });
+    console.error(err);
   }
-});
+}
 
-// ==========================================
-// TƏLƏBƏ ENDPOINT-LƏRİ
-// ==========================================
-
-// Tələbə Profili
-app.get('/api/student/profile', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+async function selectExamSlot(subjectId, examSlotId) {
   try {
-    const result = await pool.query(
-      'SELECT id, student_id, full_name, role, specialty, course, semester, entrance_score FROM users WHERE id = $1',
-      [req.user.id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Tələbə tapılmadı.' });
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Tələbənin Fənləri və Jurnal Göstəriciləri
-app.get('/api/student/subjects', authenticateToken, requireRole('STUDENT'), async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        s.id AS subject_id,
-        s.code,
-        s.name,
-        s.credits,
-        s.semester,
-        COALESCE(sg.attendance_score, 0) AS attendance_score,
-        COALESCE(sg.seminar_score, 0) AS seminar_score,
-        COALESCE(sg.lecture_score, 0) AS lecture_score,
-        COALESCE(sg.qb_score, 0) AS qb_score
-      FROM subjects s
-      LEFT JOIN student_grades sg ON s.id = sg.subject_id AND sg.user_id = $1
-      ORDER BY s.id ASC;
-    `, [req.user.id]);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Fənn üzrə Davamiyyət Siyahısı
-app.get('/api/student/attendance', authenticateToken, requireRole('STUDENT'), async (req, res) => {
-  const { subjectId } = req.query;
-  try {
-    let query = `
-      SELECT ar.*, s.name as subject_name 
-      FROM attendance_records ar
-      JOIN subjects s ON ar.subject_id = s.id
-      WHERE ar.user_id = $1
-    `;
-    const params = [req.user.id];
-
-    if (subjectId) {
-      query += ` AND ar.subject_id = $2`;
-      params.push(subjectId);
+    const res = await fetch(`${API_BASE_URL}/api/student/exam-selection`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ subjectId, examSlotId })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Xəta baş verdi.');
+      return;
     }
-    query += ` ORDER BY ar.lesson_date DESC;`;
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
+    showToast(data.message || 'İmtahan vaxtınız uğurla seçildi');
+    loadStudentExamSlots();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    showToast('Xəta baş verdi.');
   }
-});
+}
 
-// Tələbə üçün YALNIZ Admin tərəfindən aktiv edilmiş İmtahan Slotları
-app.get('/api/student/exam-slots', authenticateToken, requireRole('STUDENT'), async (req, res) => {
+// Düzəliş Tələbi Submit
+const correctionForm = document.getElementById('correctionForm');
+if (correctionForm) {
+  correctionForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const subSelect = document.getElementById('corrSubjectSelect');
+    const catSelect = document.getElementById('corrCategorySelect');
+    const descInput = document.getElementById('corrDescription');
+
+    const subjectId = subSelect ? subSelect.value : '';
+    const category = catSelect ? catSelect.value : '';
+    const description = descInput ? descInput.value : '';
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/student/correction-request`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ subjectId, category, description })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error);
+        return;
+      }
+      showToast(data.message);
+      if (descInput) descInput.value = '';
+    } catch (err) {
+      showToast('Xəta baş verdi.');
+    }
+  });
+}
+
+// ADMIN PANEL MƏLUMATLARININ YÜKLƏNMƏSİ
+async function loadAdminPortal() {
   try {
-    const slots = await pool.query(`
-      SELECT 
-        es.id,
-        es.subject_id,
-        s.name AS subject_name,
-        s.code AS subject_code,
-        TO_CHAR(es.exam_date, 'YYYY-MM-DD') AS exam_date,
-        es.exam_time,
-        es.room,
-        es.capacity,
-        (SELECT COUNT(*) FROM exam_selections WHERE exam_slot_id = es.id) AS booked_count
-      FROM exam_slots es
-      JOIN subjects s ON es.subject_id = s.id
-      WHERE es.is_active = true
-      ORDER BY es.exam_date ASC, es.exam_time ASC;
-    `);
+    const subRes = await fetch(`${API_BASE_URL}/api/admin/subjects`, { headers: getAuthHeaders() });
+    const subjects = await subRes.json();
+    const newSlotSub = document.getElementById('newSlotSubject');
+    if (newSlotSub && Array.isArray(subjects)) {
+      newSlotSub.innerHTML = '';
+      subjects.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.innerText = s.name;
+        newSlotSub.appendChild(opt);
+      });
+    }
 
-    const mySelections = await pool.query(
-      'SELECT * FROM exam_selections WHERE user_id = $1',
-      [req.user.id]
-    );
+    const stRes = await fetch(`${API_BASE_URL}/api/admin/students`, { headers: getAuthHeaders() });
+    const students = await stRes.json();
+    const tbody = document.getElementById('adminGradesTableBody');
+    if (tbody && Array.isArray(students)) {
+      tbody.innerHTML = '';
+      students.forEach(st => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${st.student_id}</td>
+          <td><strong>${st.full_name}</strong></td>
+          <td>${st.subject_name || '-'}</td>
+          <td><input type="number" step="0.5" id="att_${st.user_id}_${st.subject_id}" value="${st.attendance_score || 0}" style="width:60px"></td>
+          <td><input type="number" step="0.5" id="sem_${st.user_id}_${st.subject_id}" value="${st.seminar_score || 0}" style="width:60px"></td>
+          <td><input type="number" step="0.5" id="lec_${st.user_id}_${st.subject_id}" value="${st.lecture_score || 0}" style="width:60px"></td>
+          <td><input type="number" step="0.5" id="qb_${st.user_id}_${st.subject_id}" value="${st.qb_score || 0}" style="width:60px"></td>
+          <td><input type="number" step="0.5" id="exam_${st.user_id}_${st.subject_id}" value="${st.exam_score !== null ? st.exam_score : ''}" placeholder="Bal" style="width:60px"></td>
+          <td><button class="btn-primary" style="padding:4px 8px; font-size:11px;" onclick="saveGrade(${st.user_id}, ${st.subject_id})">Yadda Saxla</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
 
-    res.json({
-      availableSlots: slots.rows,
-      mySelections: mySelections.rows
+    loadAdminSlots();
+    loadAdminRequests();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function saveGrade(userId, subjectId) {
+  try {
+    const attEl = document.getElementById(`att_${userId}_${subjectId}`);
+    const semEl = document.getElementById(`sem_${userId}_${subjectId}`);
+    const lecEl = document.getElementById(`lec_${userId}_${subjectId}`);
+    const qbEl = document.getElementById(`qb_${userId}_${subjectId}`);
+    const examEl = document.getElementById(`exam_${userId}_${subjectId}`);
+
+    const attendanceScore = attEl ? parseFloat(attEl.value) || 0 : 0;
+    const seminarScore = semEl ? parseFloat(semEl.value) || 0 : 0;
+    const lectureScore = lecEl ? parseFloat(lecEl.value) || 0 : 0;
+    const qbScore = qbEl ? parseFloat(qbEl.value) || 0 : 0;
+    const examVal = examEl ? examEl.value : '';
+    const examScore = examVal !== '' ? parseFloat(examVal) : null;
+
+    const res = await fetch(`${API_BASE_URL}/api/admin/grades/${userId}/${subjectId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ attendanceScore, seminarScore, lectureScore, qbScore, examScore })
+    });
+    if (res.ok) {
+      showToast('Qiymət uğurla yeniləndi.');
+    } else {
+      showToast('Xəta baş verdi.');
+    }
+  } catch (err) {
+    showToast('Xəta baş verdi.');
+  }
+}
+
+async function loadAdminSlots() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/exam-slots`, { headers: getAuthHeaders() });
+    const slots = await res.json();
+    const tbody = document.getElementById('adminSlotsTableBody');
+    if (!tbody || !Array.isArray(slots)) return;
+    tbody.innerHTML = '';
+    slots.forEach(s => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${s.subject_name}</td>
+        <td>${s.formatted_date}</td>
+        <td>${s.exam_time}</td>
+        <td>${s.room}</td>
+        <td><input type="number" id="cap_${s.id}" value="${s.capacity}" style="width:60px"></td>
+        <td>${s.booked_count}</td>
+        <td>
+          <button style="padding:4px 8px; font-size:11px; cursor:pointer;" onclick="toggleSlotStatus(${s.id}, ${!s.is_active})">
+            ${s.is_active ? '🟢 Aktiv' : '🔴 Deaktiv'}
+          </button>
+        </td>
+        <td>
+          <button style="padding:4px 8px; font-size:11px; background:#0284c7; color:#fff; border:none; border-radius:3px; cursor:pointer;" onclick="updateSlotCapacity(${s.id})">Yenilə</button>
+          <button style="padding:4px 8px; font-size:11px; background:#dc2626; color:#fff; border:none; border-radius:3px; cursor:pointer;" onclick="deleteSlot(${s.id})">Sil</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
   }
-});
+}
 
-// İmtahan Vaxtı Seçimi
-app.post('/api/student/exam-selection', authenticateToken, requireRole('STUDENT'), async (req, res) => {
-  const { subjectId, examSlotId } = req.body;
-  if (!subjectId || !examSlotId) {
-    return res.status(400).json({ error: 'Fənn və slot mütləq seçilməlidir.' });
-  }
+async function toggleSlotStatus(id, newStatus) {
+  await fetch(`${API_BASE_URL}/api/admin/exam-slots/${id}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ isActive: newStatus })
+  });
+  showToast('Slot statusu yeniləndi.');
+  loadAdminSlots();
+}
 
-  try {
-    const slotCheck = await pool.query(
-      'SELECT * FROM exam_slots WHERE id = $1 AND subject_id = $2 AND is_active = true',
-      [examSlotId, subjectId]
-    );
+async function updateSlotCapacity(id) {
+  const capInput = document.getElementById(`cap_${id}`);
+  const capacity = capInput ? parseInt(capInput.value, 10) : 0;
+  await fetch(`${API_BASE_URL}/api/admin/exam-slots/${id}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ capacity })
+  });
+  showToast('Kapasitet yeniləndi.');
+  loadAdminSlots();
+}
 
-    if (slotCheck.rows.length === 0) {
-      return res.status(400).json({ error: 'Seçilmiş imtahan vaxtı mövcud deyil və ya aktivləşdirilməyib.' });
+async function deleteSlot(id) {
+  if (!confirm('Bu slotu silmək istədiyinizdən əminsiniz?')) return;
+  await fetch(`${API_BASE_URL}/api/admin/exam-slots/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  showToast('Slot silindi.');
+  loadAdminSlots();
+}
+
+const createSlotForm = document.getElementById('createSlotForm');
+if (createSlotForm) {
+  createSlotForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const subjectId = document.getElementById('newSlotSubject').value;
+    const examDate = document.getElementById('newSlotDate').value;
+    const examTime = document.getElementById('newSlotTime').value;
+    const room = document.getElementById('newSlotRoom').value;
+    const capacity = parseInt(document.getElementById('newSlotCapacity').value, 10);
+    const isActive = document.getElementById('newSlotActive').value === 'true';
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/exam-slots`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ subjectId, examDate, examTime, room, capacity, isActive })
+      });
+      if (res.ok) {
+        showToast('Yeni imtahan slotu yaradıldı.');
+        loadAdminSlots();
+      }
+    } catch (err) {
+      showToast('Xəta baş verdi.');
     }
+  });
+}
 
-    const countRes = await pool.query(
-      'SELECT COUNT(*) FROM exam_selections WHERE exam_slot_id = $1',
-      [examSlotId]
-    );
-    if (parseInt(countRes.rows[0].count, 10) >= slotCheck.rows[0].capacity) {
-      return res.status(400).json({ error: 'Bu imtahan vaxtı üçün bütün yerlər dolmuşdur.' });
+async function loadAdminRequests() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/correction-requests`, { headers: getAuthHeaders() });
+    const reqs = await res.json();
+    const tbody = document.getElementById('adminRequestsTableBody');
+    if (!tbody || !Array.isArray(reqs)) return;
+    tbody.innerHTML = '';
+    reqs.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.student_name} (${r.student_code})</td>
+        <td>${r.subject_name}</td>
+        <td><strong>${r.category}</strong></td>
+        <td>${r.description}</td>
+        <td>${new Date(r.created_at).toLocaleDateString('az-AZ')}</td>
+        <td><strong>${r.status}</strong></td>
+        <td>
+          ${r.status === 'PENDING' ? `
+            <button style="padding:4px 8px; font-size:11px; background:#16a34a; color:#fff; border:none; border-radius:3px; cursor:pointer;" onclick="decideRequest(${r.id}, 'APPROVED')">Qəbul Et</button>
+            <button style="padding:4px 8px; font-size:11px; background:#dc2626; color:#fff; border:none; border-radius:3px; cursor:pointer;" onclick="decideRequest(${r.id}, 'REJECTED')">Rədd Et</button>
+          ` : 'Qərar verilib'}
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function decideRequest(id, status) {
+  await fetch(`${API_BASE_URL}/api/admin/correction-requests/${id}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status, adminNote: `${status} statusu təyin edildi.` })
+  });
+  showToast(`Tələb ${status === 'APPROVED' ? 'təsdiqləndi' : 'rədd edildi'}.`);
+  loadAdminRequests();
+}
+
+const createNoticeForm = document.getElementById('createNoticeForm');
+if (createNoticeForm) {
+  createNoticeForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('noticeTitle').value;
+    const message = document.getElementById('noticeMessage').value;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/notifications`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ title, message })
+      });
+      if (res.ok) {
+        showToast('Bildiriş bütün tələbələr üçün göndərildi.');
+        document.getElementById('noticeTitle').value = '';
+        document.getElementById('noticeMessage').value = '';
+      }
+    } catch (err) {
+      showToast('Xəta baş verdi.');
     }
+  });
+}
 
-    await pool.query(`
-      INSERT INTO exam_selections (user_id, subject_id, exam_slot_id)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (user_id, subject_id)
-      DO UPDATE SET exam_slot_id = EXCLUDED.exam_slot_id, selected_at = CURRENT_TIMESTAMP;
-    `, [req.user.id, subjectId, examSlotId]);
-
-    res.json({ message: 'İmtahan vaxtınız uğurla seçildi' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Düzəliş Tələbi Göndər
-app.post('/api/student/correction-request', authenticateToken, requireRole('STUDENT'), async (req, res) => {
-  const { subjectId, category, description } = req.body;
-  if (!subjectId || !category || !description) {
-    return res.status(400).json({ error: 'Məlumatlar tam doldurulmalıdır.' });
-  }
-
+// App Initialization
+function initApp() {
+  const token = localStorage.getItem('elsu_token');
+  const userStr = localStorage.getItem('elsu_user');
+  let user = {};
   try {
-    await pool.query(`
-      INSERT INTO correction_requests (user_id, subject_id, category, description)
-      VALUES ($1, $2, $3, $4);
-    `, [req.user.id, subjectId, category, description]);
-
-    res.json({ message: 'Düzəliş tələbiniz qeydə alındı və baxılmaq üçün adminə göndərildi.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    user = JSON.parse(userStr || '{}');
+  } catch (e) {
+    user = {};
   }
-});
 
-// Bildirişlər
-app.get('/api/student/notifications', authenticateToken, requireRole('STUDENT'), async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT * FROM notifications WHERE user_id = $1 OR user_id IS NULL ORDER BY created_at DESC;',
-      [req.user.id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const loginSection = document.getElementById('loginSection');
+  const studentDashboard = document.getElementById('studentDashboard');
+  const adminDashboard = document.getElementById('adminDashboard');
+
+  if (!token || !user.role) {
+    if (loginSection) loginSection.classList.remove('hidden');
+    if (studentDashboard) studentDashboard.classList.add('hidden');
+    if (adminDashboard) adminDashboard.classList.add('hidden');
+    generateCaptcha();
+    return;
   }
-});
 
-// ==========================================
-// ADMIN ENDPOINT-LƏRİ
-// ==========================================
-
-// Tələbələrin siyahısı və qiymətləri
-app.get('/api/admin/students', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        u.id as user_id,
-        u.student_id,
-        u.full_name,
-        u.specialty,
-        u.course,
-        u.semester,
-        u.entrance_score,
-        s.id as subject_id,
-        s.name as subject_name,
-        sg.attendance_score,
-        sg.seminar_score,
-        sg.lecture_score,
-        sg.qb_score,
-        sg.exam_score,
-        sg.id as grade_id
-      FROM users u
-      LEFT JOIN student_grades sg ON u.id = sg.user_id
-      LEFT JOIN subjects s ON sg.subject_id = s.id
-      WHERE u.role = 'STUDENT'
-      ORDER BY u.id ASC;
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (loginSection) loginSection.classList.add('hidden');
+  if (user.role === 'STUDENT') {
+    if (studentDashboard) studentDashboard.classList.remove('hidden');
+    if (adminDashboard) adminDashboard.classList.add('hidden');
+    loadStudentPortal();
+  } else if (user.role === 'ADMIN') {
+    if (adminDashboard) adminDashboard.classList.remove('hidden');
+    if (studentDashboard) studentDashboard.classList.add('hidden');
+    loadAdminPortal();
   }
-});
+}
 
-// Fənlər Siyahısı
-app.get('/api/admin/subjects', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM subjects ORDER BY id ASC;');
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Bütün İmtahan Slotları
-app.get('/api/admin/exam-slots', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        es.*,
-        s.name as subject_name,
-        TO_CHAR(es.exam_date, 'YYYY-MM-DD') AS formatted_date,
-        (SELECT COUNT(*) FROM exam_selections WHERE exam_slot_id = es.id) AS booked_count
-      FROM exam_slots es
-      JOIN subjects s ON es.subject_id = s.id
-      ORDER BY es.exam_date DESC, es.exam_time ASC;
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Yeni İmtahan Slotu Yaratmaq
-app.post('/api/admin/exam-slots', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  const { subjectId, examDate, examTime, room, capacity, isActive } = req.body;
-  try {
-    const result = await pool.query(`
-      INSERT INTO exam_slots (subject_id, exam_date, exam_time, room, capacity, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *;
-    `, [subjectId, examDate, examTime, room, capacity || 30, isActive !== undefined ? isActive : true]);
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Slotu Yeniləmək
-app.put('/api/admin/exam-slots/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  const { id } = req.params;
-  const { examDate, examTime, room, capacity, isActive } = req.body;
-  try {
-    const result = await pool.query(`
-      UPDATE exam_slots
-      SET 
-        exam_date = COALESCE($1, exam_date),
-        exam_time = COALESCE($2, exam_time),
-        room = COALESCE($3, room),
-        capacity = COALESCE($4, capacity),
-        is_active = COALESCE($5, is_active)
-      WHERE id = $6
-      RETURNING *;
-    `, [examDate, examTime, room, capacity, isActive, id]);
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Slotu Silmək
-app.delete('/api/admin/exam-slots/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query('DELETE FROM exam_slots WHERE id = $1', [id]);
-    res.json({ message: 'Slot uğurla silindi.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Tələbə Qiymətlərini Dəyişmək
-app.put('/api/admin/grades/:userId/:subjectId', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  const { userId, subjectId } = req.params;
-  const { attendanceScore, seminarScore, lectureScore, qbScore, examScore } = req.body;
-
-  try {
-    const result = await pool.query(`
-      INSERT INTO student_grades (user_id, subject_id, attendance_score, seminar_score, lecture_score, qb_score, exam_score, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-      ON CONFLICT (user_id, subject_id)
-      DO UPDATE SET
-        attendance_score = COALESCE($3, student_grades.attendance_score),
-        seminar_score = COALESCE($4, student_grades.seminar_score),
-        lecture_score = COALESCE($5, student_grades.lecture_score),
-        qb_score = COALESCE($6, student_grades.qb_score),
-        exam_score = $7,
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING *;
-    `, [userId, subjectId, attendanceScore, seminarScore, lectureScore, qbScore, examScore]);
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Düzəliş Tələbləri
-app.get('/api/admin/correction-requests', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        cr.*,
-        u.full_name AS student_name,
-        u.student_id AS student_code,
-        s.name AS subject_name
-      FROM correction_requests cr
-      JOIN users u ON cr.user_id = u.id
-      JOIN subjects s ON cr.subject_id = s.id
-      ORDER BY cr.created_at DESC;
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/admin/correction-requests/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  const { id } = req.params;
-  const { status, adminNote } = req.body;
-  try {
-    const result = await pool.query(`
-      UPDATE correction_requests
-      SET status = $1, admin_note = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-      RETURNING *;
-    `, [status, adminNote, id]);
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Bildiriş Göndərmək
-app.post('/api/admin/notifications', authenticateToken, requireRole('ADMIN'), async (req, res) => {
-  const { userId, title, message } = req.body;
-  if (!title || !message) {
-    return res.status(400).json({ error: 'Başlıq və mətn mütləqdir.' });
-  }
-  try {
-    const result = await pool.query(`
-      INSERT INTO notifications (user_id, title, message)
-      VALUES ($1, $2, $3)
-      RETURNING *;
-    `, [userId || null, title, message]);
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`ELSU Demo Backend server ${PORT} portunda aktivdir.`);
-});
+initApp();
