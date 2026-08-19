@@ -47,18 +47,7 @@ if (tabStudent) {
 }
 
 if (tabAdmin) {
-  tabAdmin.addEventListener('click', () => {
-    currentRole = 'ADMIN';
-    tabAdmin.classList.add('active');
-    if (tabStudent) tabStudent.classList.remove('active');
-    const userIdLabel = document.getElementById('userIdLabel');
-    const loginUserId = document.getElementById('loginUserId');
-    if (userIdLabel) userIdLabel.innerText = 'Admin ID';
-    if (loginUserId) loginUserId.placeholder = 'Məs: ADMIN-DEMO';
-  });
-}
-
-// Login Form Submit (İstifadəçi ID / Tələbə ID / Admin ID uyğunsuzluğunu tam aradan qaldıran hissə)
+// Login Form Submit (ID-dən asılı olmayan düzəldilmiş hissə)
 const loginForm = document.getElementById('loginForm');
 if (loginForm) {
   loginForm.addEventListener('submit', async (e) => {
@@ -74,9 +63,9 @@ if (loginForm) {
       return;
     }
 
-    // İstifadəçi / Tələbə / Admin ID oxunması
-    const userIdInput = document.getElementById('loginUserId') || document.getElementById('studentId') || document.getElementById('userId');
-    const passwordInput = document.getElementById('loginPassword') || document.getElementById('password');
+    // HTML-də ID nə olur olsun, formun içindən input-ları tapırıq
+    const userIdInput = loginForm.querySelector('input[type="text"]') || document.getElementById('loginUserId') || document.getElementById('studentId') || document.getElementById('userId');
+    const passwordInput = loginForm.querySelector('input[type="password"]') || document.getElementById('loginPassword') || document.getElementById('password');
 
     const loginId = userIdInput ? userIdInput.value.trim() : '';
     const password = passwordInput ? passwordInput.value : '';
@@ -88,6 +77,33 @@ if (loginForm) {
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          studentId: loginId, 
+          username: loginId, 
+          userId: loginId,
+          password, 
+          role: currentRole 
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showToast(data.error || 'Giriş uğursuz oldu.');
+        generateCaptcha();
+        return;
+      }
+
+      localStorage.setItem('elsu_token', data.token);
+      localStorage.setItem('elsu_user', JSON.stringify(data.user));
+      initApp();
+    } catch (err) {
+      console.error(err);
+      showToast('Serverə qoşulma xətası. Backend API URL-i yoxlayın.');
+    }
+  });
+}
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
